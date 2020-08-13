@@ -1,0 +1,29 @@
+model_params:
+  name: 'VanillaVAE'
+  in_channels: 3
+  latent_dim: 128
+  loss_fn: 'BCE'
+  beta: 0
+
+exp_params:
+  dataset: sketchrnn
+  data_path: "./data/7/"
+  img_size: 64
+  batch_size: 8 # Better to have a square number
+  LR: 0.005
+  weight_decay: 0.0
+  scheduler_gamma: 0.95
+  grow: False
+
+trainer_params:
+  gpus: 1
+  max_nb_epochs: 500
+  max_epochs: 300
+
+logging_params:
+  save_dir: "logs/"
+  name: "VanillaVAE"
+  other_interpolations: False
+  manual_seed: 1265
+  version: 74
+  resume: epoch=54.ckpt

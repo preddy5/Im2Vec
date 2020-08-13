@@ -1,0 +1,8 @@
+pytorch-lightning==0.6.0
+PyYAML==5.1.2
+tensorboard==2.1.0
+tensorboardX==1.6
+test-tube==0.7.0
+torchfile==0.1.0
+torchnet==0.0.4
+torchsummary==1.5.1
