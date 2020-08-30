@@ -1,5 +1,5 @@
 model_params:
-  name: 'VectorVAE'
+  name: "VectorVAEnLayers"
   in_channels: 3
   latent_dim: 128
   loss_fn: 'MSE'
@@ -12,12 +12,12 @@ model_params:
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/7/"
+  data_path: "./data/8/"
   img_size: 128
   batch_size: 8 # Better to have a square number
-  val_batch_size: 8 # Better to have a square number
-  val_shuffle: False
-  LR: 0.001
+  val_batch_size: 16 # Better to have a square number
+  val_shuffle: True
+  LR: 0.00075
   weight_decay: 0.0
   scheduler_gamma: 0.95
   grow: True
@@ -30,7 +30,7 @@ trainer_params:
 logging_params:
   save_dir: "logs/"
   other_interpolations: True
-  name: "VectorVAE"
-  version: 103
+  name: "VectorVAEnLayers"
+  version: 71
   manual_seed: 1265
   resume:

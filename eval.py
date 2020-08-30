@@ -47,6 +47,7 @@ model_save_path = '{}/{}/version_{}'.format(config['logging_params']['save_dir']
 
 if config['logging_params']['resume'] ==None:
     weights = [x for x in os.listdir(model_save_path) if '.ckpt' in x]
+    weights.sort(key=lambda x: os.path.getmtime(x))
     model_path = os.path.join(model_save_path,weights[0])
 else:
     model_path = '{}/{}'.format(model_save_path, config['logging_params']['resume'])

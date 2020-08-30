@@ -5,7 +5,7 @@ from models import BaseVAE
 from torch import nn
 from torch.nn import functional as F
 
-from utils import fig2data
+from utils import fig2data, make_tensor
 from .types_ import *
 import pydiffvg
 import math
@@ -36,7 +36,7 @@ class VectorVAE(BaseVAE):
         self.in_channels = in_channels
         self.scale_factor = kwargs['scale_factor']
         self.learn_sampling = kwargs['learn_sampling']
-        self.auxillary_training = kwargs['auxillary_training']
+        self.only_auxillary_training = kwargs['only_auxillary_training']
 
         if loss_fn == 'BCE':
             self.loss_fn = F.binary_cross_entropy_with_logits
@@ -105,14 +105,20 @@ class VectorVAE(BaseVAE):
                 nn.ReLU(),
                 get_computational_unit(latent_dim*2, 1, unit),
             )
-        if self.auxillary_training:
-            self.aux_network = nn.Sequential(
-                get_computational_unit(latent_dim + 1, latent_dim*2, 'mlp'),
-                nn.ReLU(),
-                get_computational_unit(latent_dim * 2, latent_dim * 2, 'mlp'),
-                nn.ReLU(),
-                get_computational_unit(latent_dim*2, 1, 'mlp'),
-            )
+        self.aux_network = nn.Sequential(
+            get_computational_unit(latent_dim + 128, latent_dim*2, 'mlp'),
+            nn.LeakyReLU(),
+            get_computational_unit(latent_dim * 2, latent_dim * 2, 'mlp'),
+            nn.LeakyReLU(),
+            get_computational_unit(latent_dim*2, 1, 'mlp'),
+        )
+        if self.only_auxillary_training:
+            for name, param in self.named_parameters():
+                if 'aux_network' in name:
+                    print(name)
+                    param.requires_grad =True
+                else:
+                    param.requires_grad =False
         # self.lpips = VGGPerceptualLoss(False)
 
     def redo_features(self, n):
@@ -149,7 +155,8 @@ class VectorVAE(BaseVAE):
 
         return [mu, log_var]
 
-    def raster(self, all_points, verbose=False):
+    def raster(self, all_points, color=[0,0,0, 1], verbose=False, white_background=True):
+        assert len(color) == 4
         render_size = self.imsize
         bs = all_points.shape[0]
         if verbose:
@@ -210,7 +217,7 @@ class VectorVAE(BaseVAE):
                     shape_groups.append(group)
 
             else:
-                color = torch.cat([torch.ones(4)])
+                color = make_tensor(color)
                 num_ctrl_pts = torch.zeros(self.paths, dtype=torch.int32) + 2
 
                 path = pydiffvg.Path(
@@ -231,13 +238,15 @@ class VectorVAE(BaseVAE):
                          102,  # seed
                          None,
                          *scene_args)
-            out = out.permute(2, 0, 1).view(4, render_size, render_size)[:3]#.mean(0, keepdim=True)
+            out = out.permute(2, 0, 1).view(4, render_size, render_size)#[:3]#.mean(0, keepdim=True)
 
             outputs.append(out)
         output =  torch.stack(outputs).to(all_points.device)
-
+        alpha = output[:, 3:4, :, :]
         # map to [-1, 1]
-        output = 1-output
+        if white_background:
+            output_white_bg = output[:, :3, :, :]*alpha + (1-alpha)
+            output = torch.cat([output_white_bg, alpha], dim=1)
         return output
 
     def decode(self, z: Tensor, verbose=False) -> Tensor:
@@ -306,7 +315,7 @@ class VectorVAE(BaseVAE):
 
     def gaussian_pyramid_loss(self, recons, input):
         recon_loss =self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3]) #+ self.lpips(recons, input)*0.1
-        for j in range(2,3):
+        for j in range(2,4):
             recons = dsample(recons)
             input = dsample(input)
             recon_loss = recon_loss + self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3])/j
@@ -322,29 +331,43 @@ class VectorVAE(BaseVAE):
         :param kwargs:
         :return:
         """
-        recons = args[0]
+        recons = args[0][:, :3, :, :]
         input = args[1]
         mu = args[2]
         log_var = args[3]
-
+        other_losses = 0
+        if len(args)==5:
+            other_losses = args[4]*00
         aux_loss = 0
         kld_weight = kwargs['M_N'] # Account for the minibatch samples from the dataset
-        # recons_loss =F.mse_loss(recons, input)
-        # recons = (recons+1)/2
-        # input = (input+1)/2
         recon_loss = self.gaussian_pyramid_loss(recons, input)
-        if self.auxillary_training:
-            latent_plus_recon_loss = torch.cat([mu.clone().detach(), recon_loss[:, None].clone().detach()*10], dim=1)
+        if self.only_auxillary_training:
+            # recon_loss_non_reduced = (recon_loss[:, None].clone().detach()*100)
+            # latent_plus_recon_loss = torch.cat([mu.clone().detach()*100,
+            #                                     recon_loss_non_reduced.repeat([1, 128])], dim=1)
+            # spacing = self.aux_network(latent_plus_recon_loss)
+            # # spacing = F.sigmoid(spacing/10)
+            # # import pdb; pdb.set_trace()
+            # aux_loss = ((spacing- self.paths)**2).mean()
+            recon_loss_non_reduced = (recon_loss[:, None].clone().detach()*100)
+            num = torch.ones_like(mu)*self.paths
+            latent_plus_recon_loss = torch.cat([mu.clone().detach()*100,
+                                                num], dim=1)
             spacing = self.aux_network(latent_plus_recon_loss)
-            spacing = F.sigmoid(spacing / 50)
+            spacing = F.sigmoid(spacing/10)*3
             # import pdb; pdb.set_trace()
-            aux_loss = ((spacing- (1/self.number_of_points))**2).mean()
+            aux_loss = torch.abs((spacing- recon_loss_non_reduced)).mean()
+            print(recon_loss_non_reduced, spacing,(self.paths))
+            loss =  aux_loss
+            kld_loss = 0#self.beta*kld_weight * kld_loss
+            logs = {'Reconstruction_Loss': recon_loss.mean(), 'KLD': -kld_loss, 'aux_loss': aux_loss}
+            return {'loss': loss, 'progress_bar': logs }
         recon_loss = recon_loss.mean()
         kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
         kld_loss = 0#self.beta*kld_weight * kld_loss
         recon_loss = recon_loss*10
-        loss =  recon_loss + kld_loss + aux_loss
-        logs = {'Reconstruction_Loss': recon_loss, 'KLD': -kld_loss, 'aux_loss': aux_loss}
+        loss =  recon_loss + kld_loss + other_losses
+        logs = {'Reconstruction_Loss': recon_loss, 'KLD': -kld_loss, 'aux_loss': aux_loss, 'other losses': other_losses}
         return {'loss': loss, 'progress_bar': logs }
 
     def sample(self,
@@ -473,12 +496,18 @@ class VectorVAE(BaseVAE):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
+        error = []
         for i in range(7,25):
             self.redo_features(i)
             results = self.forward(x)
-            train_loss = self.loss_function(*results,
-                                                  M_N = 0,)
-            print(train_loss['progress_bar']['Reconstruction_Loss'])
+            recons = results[0][:, :3, :, :]
+            input_batch = results[1]
+
+            recon_loss = self.gaussian_pyramid_loss(recons, input_batch)
+            print(recon_loss)
+            error.append(recon_loss)
+        etn = torch.stack(error, dim=1)
+        np.savetxt('sample_error.csv', etn.numpy(), delimiter=',')
 
 
     def visualize_aux_error(self, x: Tensor, **kwargs) -> Tensor:
@@ -487,15 +516,14 @@ class VectorVAE(BaseVAE):
         :param x: (Tensor) [B x C x H x W]
         :return: (Tensor) [B x C x H x W]
         """
-        results = self.forward(x)
-        mu = results[2]
+        mu, log_var = self.encode(x)
         bs = mu.shape[0]
         all_spacing = []
         figure = plt.figure(figsize=(6, 6))
 
         for i in np.arange(0.9,0, -0.09):
             recon_loss = torch.tensor(i, dtype=torch.float32).to(mu.device)
-            recon_loss = recon_loss.repeat([bs, 1])
+            recon_loss = recon_loss.repeat([bs, 128])
             latent_plus_reconloss = torch.cat([mu.clone().detach(), recon_loss.clone().detach()], dim=1)
             spacing = self.aux_network(latent_plus_reconloss)
             spacing = 1/F.sigmoid(spacing / 50)

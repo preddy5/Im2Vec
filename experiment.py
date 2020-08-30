@@ -58,7 +58,8 @@ class VAEXperiment(pl.LightningModule):
                                               batch_idx = batch_idx)
 
         self.logger.experiment.log({'loss': train_loss['loss']})
-
+        if self.params['grow']:
+            self.model.redo_features(random.randint(7, 25))
         return train_loss
 
     # def validation_step(self, batch, batch_idx, optimizer_idx = 0):
@@ -79,10 +80,6 @@ class VAEXperiment(pl.LightningModule):
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
         tensorboard_logs = {'avg_val_loss': avg_loss}
         self.sample_images()
-        if self.params['grow']:
-            if (self.current_epoch+1) % 2 ==0:
-                print(self.current_epoch)
-                self.model.redo_features(random.randint(7, 25))
         if (self.current_epoch) % 50 == 0:
             self.model.beta = min(self.model.beta*2, 1000)
             print(self.model.beta)
@@ -138,7 +135,7 @@ class VAEXperiment(pl.LightningModule):
         vutils.save_image(train_input.cpu().data,
                           f"{save_dir}{name}/"
                           f"{name}_input.png",
-                          normalize=True,
+                          normalize=False,
                           nrow=16)
         test_input, test_label = next(iter(self.sample_dataloader))
         test_input = test_input.to(self.curr_device)
@@ -147,7 +144,7 @@ class VAEXperiment(pl.LightningModule):
         vutils.save_image(interpolate_samples.cpu().data,
                           f"{save_dir}{name}/version_{version}/"
                           f"{name}_interpolate_img.png",
-                          normalize=True,
+                          normalize=False,
                           nrow=10)
 
         if other_interpolations:
@@ -172,14 +169,14 @@ class VAEXperiment(pl.LightningModule):
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_visualize_sampling_image.png",
                               normalize=True,
-                              nrow=16)
+                              nrow=self.params['val_batch_size'])
             interpolate_samples = self.model.visualize_sampling(test_input, verbose=True)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_visualize_sampling_vector.png",
                               normalize=True,
-                              nrow=16)
+                              nrow=self.params['val_batch_size'])
             interpolate_samples = self.model.naive_vector_interpolate(test_input, verbose=False)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
@@ -223,6 +220,10 @@ class VAEXperiment(pl.LightningModule):
 
         optims = []
         scheds = []
+        # if True:
+        #     optimizer = optim.Adam(getattr(self.model,self.params['aux_network']).parameters(),
+        #                                 lr=self.params['LR'])
+        # else:
         optimizer = optim.Adam(self.model.parameters(),
                                    lr=self.params['LR'],
                                    weight_decay=self.params['weight_decay'])
@@ -277,8 +278,8 @@ class VAEXperiment(pl.LightningModule):
         else:
             dataset = datasets.ImageFolder(self.params['data_path'], transform=transform)
             self.sample_dataloader =  DataLoader(dataset,
-                                                 batch_size= 16,
-                                                 shuffle = False,
+                                                 batch_size= self.params['val_batch_size'],
+                                                 shuffle = self.params['val_shuffle'],
                                                  drop_last=True)
             self.num_val_imgs = len(self.sample_dataloader)
 

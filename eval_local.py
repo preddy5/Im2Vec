@@ -39,8 +39,10 @@ print(parent, config['exp_params']['data_path'])
 model = vae_models[config['model_params']['name']](imsize=config['exp_params']['img_size'], **config['model_params'])
 experiment = VAEXperiment(model,
                           config['exp_params'])
+
 weights = [x for x in os.listdir(model_save_path) if '.ckpt' in x]
-print('loading: ', weights[0])
+weights.sort(key=lambda x: os.path.getmtime(x))
+print('loading: ', weights[-1])
 
 experiment = VAEXperiment.load_from_checkpoint(os.path.join(model_save_path,weights[0]), vae_model = model, params=config['exp_params'])
 experiment.eval()
