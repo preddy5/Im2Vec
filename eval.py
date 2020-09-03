@@ -46,9 +46,11 @@ experiment = VAEXperiment(model,
 model_save_path = '{}/{}/version_{}'.format(config['logging_params']['save_dir'], config['logging_params']['name'], tt_logger.version)
 
 if config['logging_params']['resume'] ==None:
-    weights = [x for x in os.listdir(model_save_path) if '.ckpt' in x]
+    weights = [os.path.join(model_save_path, x) for x in os.listdir(model_save_path) if '.ckpt' in x]
     weights.sort(key=lambda x: os.path.getmtime(x))
-    model_path = os.path.join(model_save_path,weights[0])
+    model_path = weights[-1]
+    print('loading: ', model_path)
+    experiment = VAEXperiment.load_from_checkpoint(model_path, vae_model = model, params=config['exp_params'])
 else:
     model_path = '{}/{}'.format(model_save_path, config['logging_params']['resume'])
 experiment = VAEXperiment.load_from_checkpoint(model_path, vae_model = model, params=config['exp_params'])

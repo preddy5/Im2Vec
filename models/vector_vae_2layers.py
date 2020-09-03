@@ -32,13 +32,17 @@ class VectorVAE2Layers(VectorVAE):
             else:
                 return nn.Linear(in_channels, out_channels)
         self.colors = [[0, 0, 0, 1], [255/255, 165/255, 0/255, 1],]
+
+        self.rnn = nn.LSTM(latent_dim, latent_dim, 1, bidirectional=True)
+
         self.divide_shape = nn.Sequential(
-            get_computational_unit(latent_dim+2, latent_dim, 'mlp'),
             nn.ReLU(),  # bound spatial extent
             get_computational_unit(latent_dim, latent_dim, 'mlp'),
             nn.ReLU(),  # bound spatial extent
             get_computational_unit(latent_dim, latent_dim, 'mlp'),
-            nn.ReLU()  # bound spatial extent
+            nn.ReLU(),  # bound spatial extent
+            get_computational_unit(latent_dim, latent_dim, 'mlp'),
+            nn.ReLU(),  # bound spatial extent
         )
         layer_id = torch.tensor([[1,0],[0,1]], dtype=torch.float32)
         self.register_buffer('layer_id', layer_id)
@@ -54,10 +58,13 @@ class VectorVAE2Layers(VectorVAE):
     def decode_and_composite(self, z: Tensor, **kwargs):
         bs = z.shape[0]
         layers = []
-        for i in range(2):
-            layer_id_repeat = self.layer_id[i:i+1].repeat([bs, 1])
-            z_id = torch.cat([z, layer_id_repeat], dim=1)
-            shape_latent = self.divide_shape(z_id)
+        n= 2
+        z_rnn_input = z[None, :, :].repeat(n,1,1)   # [len, batch size, emb dim]
+        outputs, hidden = self.rnn(z_rnn_input)
+        outputs = outputs.permute(1, 0, 2)  # [batch size, len, emb dim]
+        outputs = outputs[:, :, :self.latent_dim] + outputs[:, :, self.latent_dim:]
+        for i in range(n):
+            shape_latent = self.divide_shape(outputs[:, i, :])
             all_points = self.decode(shape_latent)
             layer = self.raster(all_points, self.colors[i], verbose=kwargs['verbose'] )
             layers.append(layer)
@@ -99,9 +106,9 @@ class VectorVAE2Layers(VectorVAE):
         """
         mu, log_var = self.encode(x)
         all_interpolations = []
-        y_axis = self.interpolate_vectors(mu[12], mu[6], 10)
+        y_axis = self.interpolate_vectors(mu[7], mu[6], 10)
         for i in range(10):
-            z = self.interpolate_vectors(y_axis[i], mu[9], 10)
+            z = self.interpolate_vectors(y_axis[i], mu[3], 10)
             output = self.decode_and_composite(z, verbose=kwargs['verbose'])
             all_interpolations.append(output)
         return all_interpolations
@@ -118,10 +125,13 @@ class VectorVAE2Layers(VectorVAE):
         bs = mu.shape[0]
         for j in range(mu.shape[0]):
             layers = []
-            for i in range(2):
-                layer_id_repeat = self.layer_id[i:i+1].repeat([bs, 1])
-                z_id = torch.cat([mu, layer_id_repeat], dim=1)
-                shape_latent = self.divide_shape(z_id)
+            n = 2
+            z_rnn_input = mu[None, :, :].repeat(n, 1, 1)  # [len, batch size, emb dim]
+            outputs, hidden = self.rnn(z_rnn_input)
+            outputs = outputs.permute(1, 0, 2)  # [batch size, len, emb dim]
+            outputs = outputs[:, :, :self.latent_dim] + outputs[:, :, self.latent_dim:]
+            for i in range(n):
+                shape_latent = self.divide_shape(outputs[:, i, :])
                 all_points = self.decode(shape_latent)
                 all_points_interpolate = self.interpolate_vectors(all_points[2], all_points[j], 10)
                 layer = self.raster(all_points_interpolate, self.colors[i], verbose=kwargs['verbose'] )

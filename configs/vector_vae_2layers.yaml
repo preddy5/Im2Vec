@@ -12,12 +12,12 @@ model_params:
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/7_and_0/"
+  data_path: "./data/0_2c/"
   img_size: 128
-  batch_size: 8 # Better to have a square number
+  batch_size: 16 # Better to have a square number
   val_batch_size: 8 # Better to have a square number
   val_shuffle: True
-  LR: 0.00075
+  LR: 0.0005
   weight_decay: 0.0
   scheduler_gamma: 0.95
   grow: True
@@ -31,6 +31,6 @@ logging_params:
   save_dir: "logs/"
   other_interpolations: True
   name: "VectorVAE2Layers"
-  version: 74
+  version: 76
   manual_seed: 1265
   resume:

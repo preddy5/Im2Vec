@@ -198,7 +198,7 @@ class VAEXperiment(pl.LightningModule):
                               f"{name}_interpolate_vector.png",
                               normalize=True,
                               nrow=10)
-            if self.model.auxillary_training:
+            if self.model.only_auxillary_training:
                 graph = self.model.visualize_aux_error(test_input, verbose=True)
                 plt.imsave(f"{save_dir}{name}/version_{version}/{name}_aux_graph.png", graph)
 
@@ -220,10 +220,9 @@ class VAEXperiment(pl.LightningModule):
 
         optims = []
         scheds = []
-        # if True:
-        #     optimizer = optim.Adam(getattr(self.model,self.params['aux_network']).parameters(),
-        #                                 lr=self.params['LR'])
-        # else:
+        if self.model.only_auxillary_training:
+            print('Learning Rate changed for auxillary training')
+            self.params['LR'] = 0.00001
         optimizer = optim.Adam(self.model.parameters(),
                                    lr=self.params['LR'],
                                    weight_decay=self.params['weight_decay'])
@@ -280,7 +279,7 @@ class VAEXperiment(pl.LightningModule):
             self.sample_dataloader =  DataLoader(dataset,
                                                  batch_size= self.params['val_batch_size'],
                                                  shuffle = self.params['val_shuffle'],
-                                                 drop_last=True)
+                                                 drop_last=True, num_workers=1)
             self.num_val_imgs = len(self.sample_dataloader)
 
             # raise ValueError('Undefined dataset type')
@@ -289,7 +288,8 @@ class VAEXperiment(pl.LightningModule):
         return DataLoader(dataset,
                           batch_size= self.params['batch_size'],
                           shuffle = True,
-                          drop_last=False)
+                          drop_last=False,
+                          num_workers=4)
 
     # @data_loader
     # def val_dataloader(self):

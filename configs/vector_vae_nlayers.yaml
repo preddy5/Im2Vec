@@ -12,15 +12,15 @@ model_params:
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/8/"
+  data_path: "./data/8_3c_corrupted/"
   img_size: 128
   batch_size: 8 # Better to have a square number
   val_batch_size: 16 # Better to have a square number
   val_shuffle: True
-  LR: 0.00075
+  LR: 0.0001
   weight_decay: 0.0
   scheduler_gamma: 0.95
-  grow: True
+  grow: False
 
 trainer_params:
   gpus: 1
@@ -31,6 +31,5 @@ logging_params:
   save_dir: "logs/"
   other_interpolations: True
   name: "VectorVAEnLayers"
-  version: 71
+  version: 74
   manual_seed: 1265
-  resume:

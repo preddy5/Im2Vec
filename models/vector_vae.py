@@ -107,11 +107,14 @@ class VectorVAE(BaseVAE):
             )
         self.aux_network = nn.Sequential(
             get_computational_unit(latent_dim + 128, latent_dim*2, 'mlp'),
-            nn.LeakyReLU(),
+            nn.ReLU(),
             get_computational_unit(latent_dim * 2, latent_dim * 2, 'mlp'),
-            nn.LeakyReLU(),
+            nn.ReLU(),
+            get_computational_unit(latent_dim * 2, latent_dim * 2, 'mlp'),
+            nn.ReLU(),
             get_computational_unit(latent_dim*2, 1, 'mlp'),
         )
+
         if self.only_auxillary_training:
             for name, param in self.named_parameters():
                 if 'aux_network' in name:
@@ -315,10 +318,10 @@ class VectorVAE(BaseVAE):
 
     def gaussian_pyramid_loss(self, recons, input):
         recon_loss =self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3]) #+ self.lpips(recons, input)*0.1
-        for j in range(2,4):
+        for j in range(2,5):
             recons = dsample(recons)
             input = dsample(input)
-            recon_loss = recon_loss + self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3])/j
+            recon_loss = recon_loss + self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3])#/j
         return recon_loss
 
     def loss_function(self,
@@ -337,27 +340,17 @@ class VectorVAE(BaseVAE):
         log_var = args[3]
         other_losses = 0
         if len(args)==5:
-            other_losses = args[4]*00
+            other_losses = args[4]
         aux_loss = 0
         kld_weight = kwargs['M_N'] # Account for the minibatch samples from the dataset
         recon_loss = self.gaussian_pyramid_loss(recons, input)
         if self.only_auxillary_training:
-            # recon_loss_non_reduced = (recon_loss[:, None].clone().detach()*100)
-            # latent_plus_recon_loss = torch.cat([mu.clone().detach()*100,
-            #                                     recon_loss_non_reduced.repeat([1, 128])], dim=1)
-            # spacing = self.aux_network(latent_plus_recon_loss)
-            # # spacing = F.sigmoid(spacing/10)
-            # # import pdb; pdb.set_trace()
-            # aux_loss = ((spacing- self.paths)**2).mean()
-            recon_loss_non_reduced = (recon_loss[:, None].clone().detach()*100)
-            num = torch.ones_like(mu)*self.paths
-            latent_plus_recon_loss = torch.cat([mu.clone().detach()*100,
+            recon_loss_non_reduced = (recon_loss[:, None].clone().detach())
+            num = torch.ones_like(mu)/self.paths
+            latent_plus_recon_loss = torch.cat([mu.clone().detach(),
                                                 num], dim=1)
             spacing = self.aux_network(latent_plus_recon_loss)
-            spacing = F.sigmoid(spacing/10)*3
-            # import pdb; pdb.set_trace()
             aux_loss = torch.abs((spacing- recon_loss_non_reduced)).mean()
-            print(recon_loss_non_reduced, spacing,(self.paths))
             loss =  aux_loss
             kld_loss = 0#self.beta*kld_weight * kld_loss
             logs = {'Reconstruction_Loss': recon_loss.mean(), 'KLD': -kld_loss, 'aux_loss': aux_loss}
@@ -454,9 +447,9 @@ class VectorVAE(BaseVAE):
         """
         mu, log_var = self.encode(x)
         all_interpolations = []
-        y_axis = self.interpolate_vectors(mu[12], mu[6], 10)
+        y_axis = self.interpolate_vectors(mu[7], mu[6], 10)
         for i in range(10):
-            z = self.interpolate_vectors(y_axis[i], mu[9], 10)
+            z = self.interpolate_vectors(y_axis[i], mu[3], 10)
             all_points = self.decode(z)
             all_interpolations.append(self.raster(all_points, verbose=kwargs['verbose']))
         return all_interpolations
@@ -484,7 +477,7 @@ class VectorVAE(BaseVAE):
         """
         mu, log_var = self.encode(x)
         all_interpolations = []
-        for i in range(7,25):
+        for i in range(5,27):
             self.redo_features(i)
             all_points = self.decode(mu)
             all_interpolations.append(self.raster(all_points, verbose=kwargs['verbose']))
@@ -521,16 +514,17 @@ class VectorVAE(BaseVAE):
         all_spacing = []
         figure = plt.figure(figsize=(6, 6))
 
-        for i in np.arange(0.9,0, -0.09):
-            recon_loss = torch.tensor(i, dtype=torch.float32).to(mu.device)
-            recon_loss = recon_loss.repeat([bs, 128])
-            latent_plus_reconloss = torch.cat([mu.clone().detach(), recon_loss.clone().detach()], dim=1)
-            spacing = self.aux_network(latent_plus_reconloss)
-            spacing = 1/F.sigmoid(spacing / 50)
+        for i in np.arange(7,25):
+            num = torch.ones_like(mu)/i
+            latent_plus_recon_loss = torch.cat([mu.clone().detach(),
+                                                num], dim=1)
+            spacing = self.aux_network(latent_plus_recon_loss)
+            # print(i, spacing[0])
             all_spacing.append(spacing)
         all_spacing = torch.cat(all_spacing, dim=1).detach().cpu().numpy()
-        y = np.arange(0.9,0, -0.09)
+        y = np.arange(7,25)
         for i in range(bs):
-            plt.plot(y, all_spacing[i,:])
+            plt.plot(y, all_spacing[i,:], label=str(i+1))
+        plt.legend(loc='upper right')
         img = fig2data(figure)
         return img

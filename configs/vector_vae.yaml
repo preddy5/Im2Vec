@@ -8,7 +8,7 @@ model_params:
   radius: 5
   scale_factor: 20
   learn_sampling: False
-  only_auxillary_training: False
+  only_auxillary_training: True
 
 exp_params:
   dataset: sketchrnn
@@ -17,7 +17,7 @@ exp_params:
   batch_size: 8 # Better to have a square number
   val_batch_size: 8 # Better to have a square number
   val_shuffle: False
-  LR: 0.001
+  LR: 0.00001
   weight_decay: 0.0
   scheduler_gamma: 0.95
   grow: True
