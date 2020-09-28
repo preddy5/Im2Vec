@@ -11,7 +11,7 @@ from models import *
 from experiment import VAEXperiment
 import torch.backends.cudnn as cudnn
 from pytorch_lightning import Trainer
-from pytorch_lightning.logging import TestTubeLogger
+from pytorch_lightning.loggers import TestTubeLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 import click
 
@@ -43,8 +43,8 @@ model_save_path = '{}/{}/version_{}/'.format(config['logging_params']['save_dir'
 print(model_save_path)
 # Copying the folder
 if os.path.exists(model_save_path):
-    if config['model_params']['only_auxillary_training']:
-        print('Training Auxillary Network')
+    if config['model_params']['only_auxillary_training'] or config['model_params']['memory_leak_training']:
+        print('Training Auxillary Network or Memory Leak')
     elif click.confirm('Folder exists do you want to override?', default=True):
         rmtree(model_save_path)
         copytree('/home/creddy/Work/vae/', model_save_path, ignore=ignore_patterns('*.pyc', 'tmp*', 'logs*', 'data*'))
@@ -64,32 +64,38 @@ cudnn.deterministic = True
 cudnn.benchmark = False
 print(config['model_params'])
 model = vae_models[config['model_params']['name']](imsize=config['exp_params']['img_size'], **config['model_params'])
-
-if config['model_params']['only_auxillary_training'] or resume:
-    weights = [os.path.join(model_save_path, x) for x in os.listdir(model_save_path) if '.ckpt' in x]
-    weights.sort(key=lambda x: os.path.getmtime(x))
-    model_path = weights[-1]
-    print('loading: ', weights[-1])
-    experiment = VAEXperiment.load_from_checkpoint(model_path, vae_model = model, params=config['exp_params'])
-else:
-    experiment = VAEXperiment(model,
+experiment = VAEXperiment(model,
                           config['exp_params'])
 
+model_path = None
+if config['model_params']['only_auxillary_training'] or config['model_params']['memory_leak_training'] or resume:
+    weights = [os.path.join(model_save_path, x) for x in os.listdir(model_save_path) if '.ckpt' in x]
+    weights.sort(key=lambda x: os.path.getmtime(x))
+    if len(weights)>0:
+        model_path = weights[-1]
+        print('loading: ', weights[-1])
+        if config['model_params']['only_auxillary_training']:
+            checkpoint = torch.load(model_path)
+            experiment.load_state_dict(checkpoint['state_dict'])
+            model_path = None
+    # experiment = VAEXperiment.load_from_checkpoint(model_path, vae_model = model, params=config['exp_params'])
+
 checkpoint_callback = ModelCheckpoint(model_save_path,
-                                      verbose=True,)
+                                      verbose=True, save_last=True)
                                       # monitor='loss',
                                       # mode='min',)
                                       # save_top_k=5,)
 
 print(config['exp_params'], config['logging_params']['save_dir']+config['logging_params']['name'])
 runner = Trainer(checkpoint_callback=checkpoint_callback,
-                 min_nb_epochs=1,
+                 resume_from_checkpoint=model_path,
                  logger=tt_logger,
                  log_save_interval=100,
-                 gradient_clip_val=0.5,
+                 # gradient_clip_val=0.5,
                  # train_percent_check=1.,
                  # val_percent_check=1.,
                  # num_sanity_val_steps=1,
+                 weights_summary='full',
                  early_stop_callback = False,
                  **config['trainer_params'])
 

@@ -15,6 +15,9 @@ import torchvision
 import matplotlib.pyplot as plt
 dsample = kornia.transform.PyrDown()
 
+# import os
+# import psutil
+# process = psutil.Process(os.getpid())
 
 class VectorVAE(BaseVAE):
 
@@ -37,6 +40,7 @@ class VectorVAE(BaseVAE):
         self.scale_factor = kwargs['scale_factor']
         self.learn_sampling = kwargs['learn_sampling']
         self.only_auxillary_training = kwargs['only_auxillary_training']
+        self.memory_leak_training = kwargs['memory_leak_training']
 
         if loss_fn == 'BCE':
             self.loss_fn = F.binary_cross_entropy_with_logits
@@ -85,18 +89,25 @@ class VectorVAE(BaseVAE):
             self.decode_transform = lambda x: x.permute(0, 2, 1)
         else:
             self.decode_transform = lambda x: x
-        self.decoder_input = get_computational_unit(latent_dim + 2+ (sample_rate*2), latent_dim, unit)
         num_one_hot = base_control_features.shape[1]
+        fused_latent_dim = latent_dim + num_one_hot+ (sample_rate*2)
+        self.decoder_input = get_computational_unit(fused_latent_dim, fused_latent_dim*2, unit)
+        # self.point_predictor = nn.ModuleList([
+        #     get_computational_unit(latent_dim*2 + num_one_hot, latent_dim*2, unit),
+        #     get_computational_unit(latent_dim*3 + num_one_hot, latent_dim*2, unit),
+        #     get_computational_unit(latent_dim*3 + num_one_hot, latent_dim*2, unit),
+        #     get_computational_unit(latent_dim*3 + num_one_hot, 2, unit),
+        #     # nn.Sigmoid()  # bound spatial extent
+        # ])
         self.point_predictor = nn.ModuleList([
-            get_computational_unit(latent_dim*2 + num_one_hot, latent_dim*2, unit),
-            get_computational_unit(latent_dim*3 + num_one_hot, latent_dim*2, unit),
-            get_computational_unit(latent_dim*3 + num_one_hot, latent_dim*2, unit),
-            get_computational_unit(latent_dim*3 + num_one_hot, 2, unit),
+            get_computational_unit(fused_latent_dim*2, fused_latent_dim*2, unit),
+            get_computational_unit(fused_latent_dim*2, fused_latent_dim*2, unit),
+            get_computational_unit(fused_latent_dim*2, fused_latent_dim*2, unit),
+            get_computational_unit(fused_latent_dim*2, fused_latent_dim*2, unit),
+            get_computational_unit(fused_latent_dim*2, 2, unit),
             # nn.Sigmoid()  # bound spatial extent
         ])
-
         self.render = pydiffvg.RenderFunction.apply
-
         if self.learn_sampling:
             self.sample_deformation = nn.Sequential(
                 get_computational_unit(latent_dim + 2+ (sample_rate*2), latent_dim*2, unit),
@@ -106,16 +117,18 @@ class VectorVAE(BaseVAE):
                 get_computational_unit(latent_dim*2, 1, unit),
             )
         self.aux_network = nn.Sequential(
-            get_computational_unit(latent_dim + 128, latent_dim*2, 'mlp'),
-            nn.ReLU(),
+            get_computational_unit(latent_dim, latent_dim*2, 'mlp'),
+            nn.LeakyReLU(),
             get_computational_unit(latent_dim * 2, latent_dim * 2, 'mlp'),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             get_computational_unit(latent_dim * 2, latent_dim * 2, 'mlp'),
-            nn.ReLU(),
-            get_computational_unit(latent_dim*2, 1, 'mlp'),
+            nn.LeakyReLU(),
+            get_computational_unit(latent_dim*2, 3, 'mlp'),
         )
-
+        self.latent_lossvpath = {}
+        self.save_lossvspath = False
         if self.only_auxillary_training:
+            self.save_lossvspath = True
             for name, param in self.named_parameters():
                 if 'aux_network' in name:
                     print(name)
@@ -160,12 +173,15 @@ class VectorVAE(BaseVAE):
 
     def raster(self, all_points, color=[0,0,0, 1], verbose=False, white_background=True):
         assert len(color) == 4
+        # print('1:', process.memory_info().rss*1e-6)
         render_size = self.imsize
         bs = all_points.shape[0]
         if verbose:
             render_size = render_size*2
         outputs = []
         all_points = all_points*render_size
+        num_ctrl_pts = torch.zeros(self.paths, dtype=torch.int32) + 2
+        color = make_tensor(color)
         for k in range(bs):
             # Get point parameters from network
             shapes = []
@@ -220,8 +236,6 @@ class VectorVAE(BaseVAE):
                     shape_groups.append(group)
 
             else:
-                color = make_tensor(color)
-                num_ctrl_pts = torch.zeros(self.paths, dtype=torch.int32) + 2
 
                 path = pydiffvg.Path(
                     num_control_points=num_ctrl_pts, points=points,
@@ -242,14 +256,15 @@ class VectorVAE(BaseVAE):
                          None,
                          *scene_args)
             out = out.permute(2, 0, 1).view(4, render_size, render_size)#[:3]#.mean(0, keepdim=True)
-
             outputs.append(out)
         output =  torch.stack(outputs).to(all_points.device)
         alpha = output[:, 3:4, :, :]
+
         # map to [-1, 1]
         if white_background:
             output_white_bg = output[:, :3, :, :]*alpha + (1-alpha)
             output = torch.cat([output_white_bg, alpha], dim=1)
+        del num_ctrl_pts, color
         return output
 
     def decode(self, z: Tensor, verbose=False) -> Tensor:
@@ -260,8 +275,6 @@ class VectorVAE(BaseVAE):
         :return: (Tensor) [B x C x H x W]
         """
         self.id = self.id.to(z.device)
-        self.angles = self.angles.to(z.device)
-
 
         bs = z.shape[0]
         z = z[:, None, :].repeat([1, self.paths *3, 1])
@@ -269,6 +282,7 @@ class VectorVAE(BaseVAE):
         z_base = torch.cat([z, base_control_features], dim=-1)
         z_base_transform = self.decode_transform(z_base)
         if self.learn_sampling:
+            self.angles = self.angles.to(z.device)
             angles= self.angles[None, :, None].repeat(bs, 1, 1)
             x = torch.cos(angles)# + r
             y = torch.sin(angles)# + r
@@ -289,7 +303,7 @@ class VectorVAE(BaseVAE):
         all_points = self.decoder_input(self.decode_transform(z))
         for compute_block in self.point_predictor:
             all_points = F.relu(all_points)
-            all_points = torch.cat([z_base_transform, all_points], dim=1)
+            # all_points = torch.cat([z_base_transform, all_points], dim=1)
             all_points = compute_block(all_points)
         all_points = self.decode_transform(F.sigmoid(all_points/self.scale_factor))
         return all_points
@@ -321,7 +335,7 @@ class VectorVAE(BaseVAE):
         for j in range(2,5):
             recons = dsample(recons)
             input = dsample(input)
-            recon_loss = recon_loss + self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3])#/j
+            recon_loss = recon_loss + self.loss_fn(recons, input, reduction='none').mean(dim=[1,2,3])/j
         return recon_loss
 
     def loss_function(self,
@@ -345,18 +359,39 @@ class VectorVAE(BaseVAE):
         kld_weight = kwargs['M_N'] # Account for the minibatch samples from the dataset
         recon_loss = self.gaussian_pyramid_loss(recons, input)
         if self.only_auxillary_training:
-            recon_loss_non_reduced = (recon_loss[:, None].clone().detach())
-            num = torch.ones_like(mu)/self.paths
-            latent_plus_recon_loss = torch.cat([mu.clone().detach(),
-                                                num], dim=1)
-            spacing = self.aux_network(latent_plus_recon_loss)
-            aux_loss = torch.abs((spacing- recon_loss_non_reduced)).mean()
+            recon_loss_non_reduced = recon_loss[:, None].clone().detach()
+            spacing = self.aux_network(mu.clone().detach())
+            latents = mu.cpu().numpy()
+            num_latents = latents.shape[0]
+            if self.save_lossvspath:
+                recon_loss_non_reduced_cpu = recon_loss_non_reduced.cpu().numpy()
+                keys  = self.latent_lossvpath.keys()
+                for i in range(num_latents):
+                    if np.array2string(latents[i]) in keys:
+                        pair = make_tensor([self.paths, recon_loss_non_reduced_cpu[i, 0], ])[None, :].to(mu.device)
+                        self.latent_lossvpath[np.array2string(latents[i])]\
+                            = torch.cat([self.latent_lossvpath[np.array2string(latents[i])], pair], dim=0)
+                    else:
+                        self.latent_lossvpath[np.array2string(latents[i])] = make_tensor([[self.paths, recon_loss_non_reduced_cpu[i, 0]], ]).to(mu.device)
+                num = torch.ones_like(spacing[:, 0]) * self.paths
+                est_loss = spacing[:,2] + 1/torch.exp(num*spacing[:,0] - spacing[:,1])
+                # est_loss = spacing[:, 2] + (spacing[i, 0] / num)
+
+                aux_loss = torch.abs((est_loss - recon_loss_non_reduced)).mean() * 10
+            else:
+                aux_loss = 0
+                for i in range(num_latents):
+                    pair = self.latent_lossvpath[np.array2string(latents[i])]
+                    est_loss = spacing[i, 2] + 1 / torch.exp(pair[:, 0] * spacing[i, 0] - spacing[i, 1])
+
+                    # est_loss = spacing[i, 2] + (spacing[i, 0] / pair[:, 0])
+                    aux_loss = aux_loss + torch.abs((est_loss - pair[:, 1])).mean()
             loss =  aux_loss
             kld_loss = 0#self.beta*kld_weight * kld_loss
             logs = {'Reconstruction_Loss': recon_loss.mean(), 'KLD': -kld_loss, 'aux_loss': aux_loss}
             return {'loss': loss, 'progress_bar': logs }
         recon_loss = recon_loss.mean()
-        kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+        # kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
         kld_loss = 0#self.beta*kld_weight * kld_loss
         recon_loss = recon_loss*10
         loss =  recon_loss + kld_loss + other_losses
@@ -390,7 +425,7 @@ class VectorVAE(BaseVAE):
         """
         mu, log_var = self.encode(x)
         z = self.reparameterize(mu, log_var)
-        return  self.raster(self.decode(z), verbose=True)
+        return  self.raster(self.decode(z), verbose=random.choice([True, False]))
  # .type(torch.FloatTensor).to(device)
 
     def save(self, x, save_dir, name):
@@ -490,6 +525,8 @@ class VectorVAE(BaseVAE):
         :return: (Tensor) [B x C x H x W]
         """
         error = []
+        figure = plt.figure(figsize=(6, 6))
+        bs = x.shape[0]
         for i in range(7,25):
             self.redo_features(i)
             results = self.forward(x)
@@ -499,9 +536,14 @@ class VectorVAE(BaseVAE):
             recon_loss = self.gaussian_pyramid_loss(recons, input_batch)
             print(recon_loss)
             error.append(recon_loss)
-        etn = torch.stack(error, dim=1)
-        np.savetxt('sample_error.csv', etn.numpy(), delimiter=',')
-
+        etn = torch.stack(error, dim=1).numpy()
+        np.savetxt('sample_error.csv', etn, delimiter=',')
+        y = np.arange(7,25)
+        for i in range(bs):
+            plt.plot(y, etn[i,:], label=str(i+1))
+        plt.legend(loc='upper right')
+        img = fig2data(figure)
+        return img
 
     def visualize_aux_error(self, x: Tensor, **kwargs) -> Tensor:
         """
@@ -515,13 +557,14 @@ class VectorVAE(BaseVAE):
         figure = plt.figure(figsize=(6, 6))
 
         for i in np.arange(7,25):
-            num = torch.ones_like(mu)/i
-            latent_plus_recon_loss = torch.cat([mu.clone().detach(),
-                                                num], dim=1)
-            spacing = self.aux_network(latent_plus_recon_loss)
+            spacing = self.aux_network(mu.clone().detach())
+            num = torch.ones_like(spacing[:,0])*i
+            # est_loss = spacing[:,2] + 1/torch.exp(num*spacing[:,0] + spacing[:,1])
+            est_loss =     spacing[:,2] + (spacing[:,0]/num)
+
             # print(i, spacing[0])
-            all_spacing.append(spacing)
-        all_spacing = torch.cat(all_spacing, dim=1).detach().cpu().numpy()
+            all_spacing.append(est_loss)
+        all_spacing = torch.stack(all_spacing, dim=1).detach().cpu().numpy()
         y = np.arange(7,25)
         for i in range(bs):
             plt.plot(y, all_spacing[i,:], label=str(i+1))

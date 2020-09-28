@@ -1,0 +1,12 @@
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_soft.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml
+CUDA_VISIBLE_DEVICES=1 python run.py -c configs/numbers_hard.yaml

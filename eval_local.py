@@ -7,7 +7,7 @@ from models import *
 from experiment import VAEXperiment
 import torch.backends.cudnn as cudnn
 from pytorch_lightning import Trainer
-from pytorch_lightning.logging import TestTubeLogger
+from pytorch_lightning.loggers import TestTubeLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 
@@ -46,7 +46,9 @@ weights.sort(key=lambda x: os.path.getmtime(x))
 load_weight = weights[-1]
 print('loading: ', load_weight)
 
-experiment = VAEXperiment.load_from_checkpoint(load_weight, vae_model = model, params=config['exp_params'])
+checkpoint = torch.load(load_weight)
+experiment.load_state_dict(checkpoint['state_dict'])
+_ = experiment.train_dataloader()
 experiment.eval()
 experiment.freeze()
 experiment.sample_interpolate(save_dir=config['logging_params']['save_dir'], name=config['logging_params']['name'],

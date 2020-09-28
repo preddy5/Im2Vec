@@ -1,5 +1,5 @@
 model_params:
-  name: 'VectorVAE'
+  name: "VectorVAEnLayers"
   in_channels: 3
   latent_dim: 128
   loss_fn: 'MSE'
@@ -8,27 +8,28 @@ model_params:
   radius: 5
   scale_factor: 20
   learn_sampling: False
-  only_auxillary_training: True
+  only_auxillary_training: False
+  composite_fn: 'hard'
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/7/"
+  data_path: "./data/emoji/"
   img_size: 128
   batch_size: 8 # Better to have a square number
   val_batch_size: 8 # Better to have a square number
-  val_shuffle: False
-  LR: 0.00075
+  val_shuffle: True
+  LR: 0.000001
   weight_decay: 0.0
   scheduler_gamma: 0.95
   grow: True
 
 trainer_params:
   gpus: 1
-  max_epochs: 2000
+  max_epochs: 2500
 
 logging_params:
   save_dir: "logs/"
   other_interpolations: True
-  name: "VectorVAE"
-  version: 104
+  name: "VectorVAEnLayers"
+  version: 110
   manual_seed: 1265

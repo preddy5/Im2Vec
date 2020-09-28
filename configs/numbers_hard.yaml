@@ -14,12 +14,12 @@ model_params:
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/numbers/"
+  data_path: "./data/numbers_changed/"
   img_size: 128
   batch_size: 32 # Better to have a square number
   val_batch_size: 16 # Better to have a square number
   val_shuffle: True
-  LR: 0.0005
+  LR: 0.001
   weight_decay: 0.0
   scheduler_gamma: 0.95
   grow: False

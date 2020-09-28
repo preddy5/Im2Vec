@@ -9,12 +9,12 @@ model_params:
   scale_factor: 20
   learn_sampling: False
   only_auxillary_training: False
-  composite_fn: 'hard'
+  composite_fn: 'soft'
   memory_leak_training: True
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/numbers/"
+  data_path: "./data/numbers_changed/"
   img_size: 128
   batch_size: 32 # Better to have a square number
   val_batch_size: 16 # Better to have a square number

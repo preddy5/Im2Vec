@@ -12,10 +12,14 @@ import pytorch_lightning as pl
 from torchvision import transforms
 import torchvision.utils as vutils
 from torchvision.datasets import CelebA
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets
 from scheduler import GradualWarmupScheduler
 import matplotlib.pyplot as plt
+import gc
+from PIL import Image
+import glob
+
 
 
 class ImageFileDataset(datasets.ImageFolder):
@@ -26,6 +30,22 @@ class ImageFileDataset(datasets.ImageFolder):
         _, class_name = os.path.split(dirs)
         filename = os.path.join(class_name, filename)
         return sample
+
+
+class MyDataset(Dataset):
+    def __init__(self, image_paths, transform=None):
+        self.image_paths = glob.glob(image_paths+ '/train/*.png')
+        self.transform = transform
+
+    def __getitem__(self, index):
+        x = Image.open(self.image_paths[index]).convert('RGB')
+        if self.transform:
+            x = self.transform(x)
+
+        return x, ''
+
+    def __len__(self):
+        return len(self.image_paths)
 
 
 class VAEXperiment(pl.LightningModule):
@@ -39,6 +59,7 @@ class VAEXperiment(pl.LightningModule):
         self.params = params
         self.curr_device = None
         self.hold_graph = False
+        self.first_epoch = True
         try:
             self.hold_graph = self.params['retain_first_backpass']
         except:
@@ -50,7 +71,6 @@ class VAEXperiment(pl.LightningModule):
     def training_step(self, batch, batch_idx, optimizer_idx = 0):
         real_img, labels = batch
         self.curr_device = real_img.device
-
         results = self.forward(real_img, labels = labels)
         train_loss = self.model.loss_function(*results,
                                               M_N = self.params['batch_size']/ self.num_train_imgs,
@@ -58,8 +78,16 @@ class VAEXperiment(pl.LightningModule):
                                               batch_idx = batch_idx)
 
         self.logger.experiment.log({'loss': train_loss['loss']})
+        max_paths = 25
+        if self.model.only_auxillary_training:
+            path = self.current_epoch + 6
+            if path>30:
+                path = random.randint(7, 25)
+                self.model.save_lossvspath = False
+        else:
+            path = random.randint(7, 25)
         if self.params['grow']:
-            self.model.redo_features(random.randint(7, 25))
+            self.model.redo_features(path)
         return train_loss
 
     # def validation_step(self, batch, batch_idx, optimizer_idx = 0):
@@ -78,11 +106,17 @@ class VAEXperiment(pl.LightningModule):
     def training_epoch_end(self, outputs):
         super(VAEXperiment, self).training_epoch_end(outputs)
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
-        tensorboard_logs = {'avg_val_loss': avg_loss}
+        tensorboard_logs = {'avg_val_loss': avg_loss, 'learning_rate': self.trainer.optimizers[0].param_groups[0]["lr"]}
         self.sample_images()
         if (self.current_epoch) % 50 == 0:
             self.model.beta = min(self.model.beta*2, 1000)
             print(self.model.beta)
+        if (self.current_epoch+1) % 250 == 0 and self.model.memory_leak_training and not self.first_epoch:
+            quit()
+        self.first_epoch = False
+        gc.collect()
+        torch.cuda.empty_cache()
+        print('learning rate: ', self.trainer.optimizers[0].param_groups[0]["lr"])
         return {'val_loss': avg_loss, 'log': tensorboard_logs}
     #
     # def on_after_backward(self):
@@ -113,30 +147,23 @@ class VAEXperiment(pl.LightningModule):
                           normalize=True,
                           nrow=12)
 
-        try:
-            samples = self.model.sample(144,
-                                        self.curr_device,
-                                        labels = test_label)
-            vutils.save_image(samples.cpu().data,
-                              f"{self.logger.save_dir}{self.logger.name}/version_{self.logger.version}/"
-                              f"{self.logger.name}_{self.current_epoch:04d}.png",
-                              normalize=True,
-                              nrow=12)
-
-        except:
-            pass
+        # try:
+        #     samples = self.model.sample(144,
+        #                                 self.curr_device,
+        #                                 labels = test_label)
+        #     vutils.save_image(samples.cpu().data,
+        #                       f"{self.logger.save_dir}{self.logger.name}/version_{self.logger.version}/"
+        #                       f"{self.logger.name}_{self.current_epoch:04d}.png",
+        #                       normalize=True,
+        #                       nrow=12)
+        # 
+        # except:
+        #     pass
 
 
         del test_input, recons #, samples
 
     def sample_interpolate(self, save_dir, name, version, save_svg=False, other_interpolations=False):
-        train_sampler = self.train_dataloader()
-        train_input, train_label = next(iter(train_sampler))
-        vutils.save_image(train_input.cpu().data,
-                          f"{save_dir}{name}/"
-                          f"{name}_input.png",
-                          normalize=False,
-                          nrow=16)
         test_input, test_label = next(iter(self.sample_dataloader))
         test_input = test_input.to(self.curr_device)
         interpolate_samples = self.model.interpolate(test_input, verbose=False)
@@ -148,7 +175,8 @@ class VAEXperiment(pl.LightningModule):
                           nrow=10)
 
         if other_interpolations:
-            self.model.sampling_error(test_input)
+            sampling_graph = self.model.sampling_error(test_input)
+            plt.imsave(f"{save_dir}{name}/version_{version}/{name}_recons_graph.png", sampling_graph)
             interpolate_samples = self.model.interpolate2D(test_input, verbose=False)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
@@ -207,7 +235,7 @@ class VAEXperiment(pl.LightningModule):
                           f"{save_dir}{name}/version_{version}/"
                           f"{name}_recons.png",
                           normalize=True,
-                          nrow=16)
+                          nrow=10)
         vutils.save_image(test_input.cpu().data,
                           f"{save_dir}{name}/version_{version}/"
                           f"{name}_input.png",
@@ -236,26 +264,27 @@ class VAEXperiment(pl.LightningModule):
         except:
             pass
 
-        try:
-            if self.params['scheduler_gamma'] is not None:
-                scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
-                                                             gamma = self.params['scheduler_gamma'])
-                scheduler_warmup = GradualWarmupScheduler(optim, multiplier=1, total_epoch=5,
-                                                          after_scheduler=scheduler)
+        if self.params['scheduler_gamma'] is not None:
+            scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
+                                                         gamma = self.params['scheduler_gamma'])
+            # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optims[0], 'min', verbose=True, factor=self.params['scheduler_gamma'])
+            # scheduler = optim.lr_scheduler.CyclicLR(optims[0], self.params['LR']*0.1, self.params['LR'], mode='exp_range',
+            #                                              gamma = self.params['scheduler_gamma'])
+            scheduler_warmup = GradualWarmupScheduler(optims[0], multiplier=1, total_epoch=20,
+                                                      after_scheduler=None)
 
-                scheds.append(scheduler_warmup)
+            scheds.append(scheduler_warmup)
 
-                # Check if another scheduler is required for the second optimizer
-                try:
-                    if self.params['scheduler_gamma_2'] is not None:
-                        scheduler2 = optim.lr_scheduler.ExponentialLR(optims[1],
-                                                                      gamma = self.params['scheduler_gamma_2'])
-                        scheds.append(scheduler2)
-                except:
-                    pass
-                return optims, scheds
-        except:
-            return optims
+            # Check if another scheduler is required for the second optimizer
+            try:
+                if self.params['scheduler_gamma_2'] is not None:
+                    scheduler2 = optim.lr_scheduler.ExponentialLR(optims[1],
+                                                                  gamma = self.params['scheduler_gamma_2'])
+                    scheds.append(scheduler2)
+            except:
+                pass
+            print('USING WARMUP SCHEDULER')
+            return optims, scheds
 
     @data_loader
     def train_dataloader(self):
@@ -276,6 +305,8 @@ class VAEXperiment(pl.LightningModule):
             in_channels = 1
         else:
             dataset = datasets.ImageFolder(self.params['data_path'], transform=transform)
+            # dataset = MyDataset(self.params['data_path'], transform=transform)
+
             self.sample_dataloader =  DataLoader(dataset,
                                                  batch_size= self.params['val_batch_size'],
                                                  shuffle = self.params['val_shuffle'],
@@ -288,8 +319,7 @@ class VAEXperiment(pl.LightningModule):
         return DataLoader(dataset,
                           batch_size= self.params['batch_size'],
                           shuffle = True,
-                          drop_last=False,
-                          num_workers=4)
+                          drop_last=False, num_workers=1)
 
     # @data_loader
     # def val_dataloader(self):
