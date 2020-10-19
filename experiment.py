@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import gc
 from PIL import Image
 import glob
+import torch_optimizer as optim_
 
 
 
@@ -111,7 +112,7 @@ class VAEXperiment(pl.LightningModule):
         if (self.current_epoch) % 50 == 0:
             self.model.beta = min(self.model.beta*2, 1000)
             print(self.model.beta)
-        if (self.current_epoch+1) % 250 == 0 and self.model.memory_leak_training and not self.first_epoch:
+        if (self.current_epoch+1) % 100 == 0 and self.model.memory_leak_training and not self.first_epoch:
             quit()
         self.first_epoch = False
         gc.collect()
@@ -138,13 +139,13 @@ class VAEXperiment(pl.LightningModule):
         vutils.save_image(recons.data,
                           f"{self.logger.save_dir}{self.logger.name}/version_{self.logger.version}/"
                           f"recons_{self.logger.name}_{self.current_epoch:04d}.png",
-                          normalize=True,
+                          normalize=False,
                           nrow=12)
 
         vutils.save_image(test_input.data,
                           f"{self.logger.save_dir}{self.logger.name}/version_{self.logger.version}/"
                           f"real_img_{self.logger.name}_{self.current_epoch:04d}.png",
-                          normalize=True,
+                          normalize=False,
                           nrow=12)
 
         # try:
@@ -154,7 +155,7 @@ class VAEXperiment(pl.LightningModule):
         #     vutils.save_image(samples.cpu().data,
         #                       f"{self.logger.save_dir}{self.logger.name}/version_{self.logger.version}/"
         #                       f"{self.logger.name}_{self.current_epoch:04d}.png",
-        #                       normalize=True,
+        #                       normalize=False,
         #                       nrow=12)
         # 
         # except:
@@ -182,49 +183,49 @@ class VAEXperiment(pl.LightningModule):
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_interpolate2D_image.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=10)
             interpolate_samples = self.model.interpolate2D(test_input, verbose=True)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_interpolate2D_vector.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=10)
             interpolate_samples = self.model.visualize_sampling(test_input, verbose=False)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_visualize_sampling_image.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=self.params['val_batch_size'])
             interpolate_samples = self.model.visualize_sampling(test_input, verbose=True)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_visualize_sampling_vector.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=self.params['val_batch_size'])
             interpolate_samples = self.model.naive_vector_interpolate(test_input, verbose=False)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_naive_interpolate_image.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=10)
             interpolate_samples = self.model.naive_vector_interpolate(test_input, verbose=True)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_naive_interpolate_vector.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=10)
             interpolate_samples = self.model.interpolate(test_input, verbose=True)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
                               f"{save_dir}{name}/version_{version}/"
                               f"{name}_interpolate_vector.png",
-                              normalize=True,
+                              normalize=False,
                               nrow=10)
             if self.model.only_auxillary_training:
                 graph = self.model.visualize_aux_error(test_input, verbose=True)
@@ -234,12 +235,12 @@ class VAEXperiment(pl.LightningModule):
         vutils.save_image(recons.cpu().data,
                           f"{save_dir}{name}/version_{version}/"
                           f"{name}_recons.png",
-                          normalize=True,
+                          normalize=False,
                           nrow=10)
         vutils.save_image(test_input.cpu().data,
                           f"{save_dir}{name}/version_{version}/"
                           f"{name}_input.png",
-                          normalize=True,
+                          normalize=False,
                           nrow=10)
         # if save_svg:
         #     self.model.save(test_input, save_dir, name)
@@ -251,40 +252,45 @@ class VAEXperiment(pl.LightningModule):
         if self.model.only_auxillary_training:
             print('Learning Rate changed for auxillary training')
             self.params['LR'] = 0.00001
-        optimizer = optim.Adam(self.model.parameters(),
+        optimizer = optim_.Ranger(self.model.parameters(),
                                    lr=self.params['LR'],
                                    weight_decay=self.params['weight_decay'])
         optims.append(optimizer)
         # Check if more than 1 optimizer is required (Used for adversarial training)
         try:
             if self.params['LR_2'] is not None:
-                optimizer2 = optim.Adam(getattr(self.model,self.params['submodel']).parameters(),
+                optimizer2 = optim_.AdamP(getattr(self.model,self.params['submodel']).parameters(),
                                         lr=self.params['LR_2'])
                 optims.append(optimizer2)
         except:
             pass
 
-        if self.params['scheduler_gamma'] is not None:
-            scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
-                                                         gamma = self.params['scheduler_gamma'])
-            # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optims[0], 'min', verbose=True, factor=self.params['scheduler_gamma'])
-            # scheduler = optim.lr_scheduler.CyclicLR(optims[0], self.params['LR']*0.1, self.params['LR'], mode='exp_range',
-            #                                              gamma = self.params['scheduler_gamma'])
-            scheduler_warmup = GradualWarmupScheduler(optims[0], multiplier=1, total_epoch=20,
-                                                      after_scheduler=None)
+        # scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
+        #                                              gamma = self.params['scheduler_gamma'])
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optims[0], 'min', verbose=True, factor=self.params['scheduler_gamma'], min_lr=0.000005, patience=35)
+        # scheduler = optim.lr_scheduler.CyclicLR(optims[0], self.params['LR']*0.1, self.params['LR'], mode='exp_range',
+        #                                              gamma = self.params['scheduler_gamma'])
+        # scheduler = optim.lr_scheduler.OneCycleLR(optims[0], max_lr=self.params['LR'], steps_per_epoch=130, epochs=2000)
+        scheduler = GradualWarmupScheduler(optims[0], multiplier=1, total_epoch=30,
+                                                  after_scheduler=scheduler)
 
-            scheds.append(scheduler_warmup)
+        scheds.append({
+         'scheduler': scheduler,
+         'monitor': 'val_loss', # Default: val_loss
+         'interval': 'epoch',
+         'frequency': 1,
+        },)
 
-            # Check if another scheduler is required for the second optimizer
-            try:
-                if self.params['scheduler_gamma_2'] is not None:
-                    scheduler2 = optim.lr_scheduler.ExponentialLR(optims[1],
-                                                                  gamma = self.params['scheduler_gamma_2'])
-                    scheds.append(scheduler2)
-            except:
-                pass
-            print('USING WARMUP SCHEDULER')
-            return optims, scheds
+        # Check if another scheduler is required for the second optimizer
+        try:
+            if self.params['scheduler_gamma_2'] is not None:
+                scheduler2 = optim.lr_scheduler.ExponentialLR(optims[1],
+                                                              gamma = self.params['scheduler_gamma_2'])
+                scheds.append(scheduler2)
+        except:
+            pass
+        print('USING WARMUP SCHEDULER')
+        return optims, scheds
 
     @data_loader
     def train_dataloader(self):
@@ -306,8 +312,12 @@ class VAEXperiment(pl.LightningModule):
         else:
             dataset = datasets.ImageFolder(self.params['data_path'], transform=transform)
             # dataset = MyDataset(self.params['data_path'], transform=transform)
-
-            self.sample_dataloader =  DataLoader(dataset,
+            test_dataset = self.params['data_path'].replace('train','test')
+            if os.path.exists(test_dataset):
+                test_dataset = datasets.ImageFolder(test_dataset, transform=transform)
+            else:
+                test_dataset = dataset
+            self.sample_dataloader =  DataLoader(test_dataset,
                                                  batch_size= self.params['val_batch_size'],
                                                  shuffle = self.params['val_shuffle'],
                                                  drop_last=True, num_workers=1)

@@ -11,7 +11,7 @@ class GradualWarmupScheduler(_LRScheduler):
         total_epoch: target learning rate is reached at total_epoch, gradually
         after_scheduler: after target_epoch, use this scheduler(eg. ReduceLROnPlateau)
     """
-
+    __metaclass__ = ReduceLROnPlateau
     def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
         self.multiplier = multiplier
         if self.multiplier < 1.:
@@ -20,6 +20,10 @@ class GradualWarmupScheduler(_LRScheduler):
         self.after_scheduler = after_scheduler
         self.finished = False
         super(GradualWarmupScheduler, self).__init__(optimizer)
+
+    @property
+    def __class__(self):
+        return ReduceLROnPlateau
 
     def get_lr(self):
         if self.last_epoch > self.total_epoch:
@@ -40,7 +44,11 @@ class GradualWarmupScheduler(_LRScheduler):
             epoch = self.last_epoch + 1
         self.last_epoch = epoch if epoch != 0 else 1  # ReduceLROnPlateau is called at the end of epoch, whereas others are called at beginning
         if self.last_epoch <= self.total_epoch:
-            warmup_lr = [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
+            if self.multiplier == 1.0:
+                warmup_lr = [base_lr * (float(self.last_epoch) / self.total_epoch) for base_lr in self.base_lrs]
+            else:
+                warmup_lr =  [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in
+                        self.base_lrs]
             for param_group, lr in zip(self.optimizer.param_groups, warmup_lr):
                 param_group['lr'] = lr
         else:
@@ -49,7 +57,7 @@ class GradualWarmupScheduler(_LRScheduler):
             else:
                 self.after_scheduler.step(metrics, epoch - self.total_epoch)
 
-    def step(self, epoch=None, metrics=None):
+    def step(self,  metrics=None, epoch=None):
         if type(self.after_scheduler) != ReduceLROnPlateau:
             if self.finished and self.after_scheduler:
                 if epoch is None:
