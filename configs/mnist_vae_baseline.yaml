@@ -1,27 +1,27 @@
 model_params:
-  name: 'VectorVAE'
+  name: 'VanillaVAE'
   in_channels: 3
-  latent_dim: 128
+  latent_dim: 28
   loss_fn: 'MSE'
   paths: 20
   beta: 0
-  radius: 5
-  scale_factor: 20
+  radius: 50
+  scale_factor: 1
   learn_sampling: False
-  only_auxillary_training: True
+  only_auxillary_training: False
   memory_leak_training: False
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/7/"
+  data_path: "./data/mnist_ours_changed/"
   img_size: 128
   batch_size: 8 # Better to have a square number
   val_batch_size: 8 # Better to have a square number
   val_shuffle: False
-  LR: 0.00075
+  LR: 0.001
   weight_decay: 0.0
   scheduler_gamma: 0.95
-  grow: True
+  grow: False
 
 trainer_params:
   gpus: 1
@@ -30,6 +30,6 @@ trainer_params:
 logging_params:
   save_dir: "logs/"
   other_interpolations: True
-  name: "VectorVAE"
-  version: 104
+  name: "VanillaVAE"
+  version: 500
   manual_seed: 1265

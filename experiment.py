@@ -61,6 +61,7 @@ class VAEXperiment(pl.LightningModule):
         self.curr_device = None
         self.hold_graph = False
         self.first_epoch = True
+        self.beta_scale = 2.0  #1.4
         try:
             self.hold_graph = self.params['retain_first_backpass']
         except:
@@ -103,18 +104,24 @@ class VAEXperiment(pl.LightningModule):
     #                                         batch_idx = batch_idx)
     #
     #     return val_loss
+    def on_load_checkpoint(self, checkpoint):
+        load_epoch = checkpoint['epoch']
+        new_beta = self.model.beta * (self.beta_scale ** (load_epoch // 25))
+        self.model.beta = min(new_beta, 4)
+        print('loaded beta: ', self.model.beta)
 
     def training_epoch_end(self, outputs):
         super(VAEXperiment, self).training_epoch_end(outputs)
         avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
         tensorboard_logs = {'avg_val_loss': avg_loss, 'learning_rate': self.trainer.optimizers[0].param_groups[0]["lr"]}
         self.sample_images()
-        if (self.current_epoch) % 50 == 0:
-            self.model.beta = min(self.model.beta*2, 1000)
-            print(self.model.beta)
-        if (self.current_epoch+1) % 100 == 0 and self.model.memory_leak_training and not self.first_epoch:
+        if (self.current_epoch+1) % self.model.memory_leak_epochs == 0 and self.model.memory_leak_training and not self.first_epoch:
             quit()
         self.first_epoch = False
+        print('beta: ', self.model.beta)
+        if self.current_epoch % 25 ==0:
+            new_beta = self.model.beta * self.beta_scale
+            self.model.beta = min(new_beta, 4)
         gc.collect()
         torch.cuda.empty_cache()
         print('learning rate: ', self.trainer.optimizers[0].param_groups[0]["lr"])
@@ -176,8 +183,6 @@ class VAEXperiment(pl.LightningModule):
                           nrow=10)
 
         if other_interpolations:
-            sampling_graph = self.model.sampling_error(test_input)
-            plt.imsave(f"{save_dir}{name}/version_{version}/{name}_recons_graph.png", sampling_graph)
             interpolate_samples = self.model.interpolate2D(test_input, verbose=False)
             interpolate_samples = torch.cat(interpolate_samples, dim=0)
             vutils.save_image(interpolate_samples.cpu().data,
@@ -227,6 +232,8 @@ class VAEXperiment(pl.LightningModule):
                               f"{name}_interpolate_vector.png",
                               normalize=False,
                               nrow=10)
+            sampling_graph = self.model.sampling_error(test_input)
+            plt.imsave(f"{save_dir}{name}/version_{version}/{name}_recons_graph.png", sampling_graph)
             if self.model.only_auxillary_training:
                 graph = self.model.visualize_aux_error(test_input, verbose=True)
                 plt.imsave(f"{save_dir}{name}/version_{version}/{name}_aux_graph.png", graph)
@@ -266,13 +273,13 @@ class VAEXperiment(pl.LightningModule):
             pass
 
         # scheduler = optim.lr_scheduler.ExponentialLR(optims[0],
-        #                                              gamma = self.params['scheduler_gamma'])
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optims[0], 'min', verbose=True, factor=self.params['scheduler_gamma'], min_lr=0.000005, patience=35)
+        #                                              gamma = self.params['scheduler_gamma'], last_epoch=450)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optims[0], 'min', verbose=True, factor=self.params['scheduler_gamma'], min_lr=0.0001, patience=int(self.model.memory_leak_epochs/7))
         # scheduler = optim.lr_scheduler.CyclicLR(optims[0], self.params['LR']*0.1, self.params['LR'], mode='exp_range',
         #                                              gamma = self.params['scheduler_gamma'])
         # scheduler = optim.lr_scheduler.OneCycleLR(optims[0], max_lr=self.params['LR'], steps_per_epoch=130, epochs=2000)
-        scheduler = GradualWarmupScheduler(optims[0], multiplier=1, total_epoch=30,
-                                                  after_scheduler=scheduler)
+        # scheduler = GradualWarmupScheduler(optims[0], multiplier=1, total_epoch=20,
+        #                                           after_scheduler=scheduler)
 
         scheds.append({
          'scheduler': scheduler,

@@ -18,6 +18,11 @@ class VanillaVAE(BaseVAE):
         super(VanillaVAE, self).__init__()
         print('Beta:', beta, ' loss_fn: ', loss_fn)
         self.beta = beta
+        self.scale_factor = kwargs['scale_factor']
+        self.learn_sampling = kwargs['learn_sampling']
+        self.only_auxillary_training = kwargs['only_auxillary_training']
+        self.memory_leak_training = kwargs['memory_leak_training']
+        self.other_losses_weight = 0
         if loss_fn == 'BCE':
             self.output_transfrom = lambda x: x
             self.loss_fn = F.binary_cross_entropy
@@ -25,6 +30,9 @@ class VanillaVAE(BaseVAE):
             self.output_transfrom = lambda x: x
             self.loss_fn = F.mse_loss
         self.latent_dim = latent_dim
+        self.memory_leak_epochs = 105
+        if 'memory_leak_epochs' in kwargs.keys():
+            self.memory_leak_epochs = kwargs['memory_leak_epochs']
 
         modules = []
         if hidden_dims is None:
@@ -42,8 +50,10 @@ class VanillaVAE(BaseVAE):
             in_channels = h_dim
 
         self.encoder = nn.Sequential(*modules)
-        self.fc_mu = nn.Linear(hidden_dims[-1]*4, latent_dim)
-        self.fc_var = nn.Linear(hidden_dims[-1]*4, latent_dim)
+        imsize = kwargs['imsize']
+        outsize = int(imsize/(2**5))
+        self.fc_mu = nn.Linear(hidden_dims[-1]*outsize*outsize, latent_dim)
+        self.fc_var = nn.Linear(hidden_dims[-1]*outsize*outsize, latent_dim)
 
 
         # Build Decoder
@@ -65,8 +75,18 @@ class VanillaVAE(BaseVAE):
                     # nn.BatchNorm2d(hidden_dims[i + 1]),
                     nn.LeakyReLU())
             )
-
-
+            # modules.append(
+            #     nn.Sequential(
+            #         nn.ConvTranspose2d(hidden_dims[i+1],
+            #                            hidden_dims[i+1],
+            #                            kernel_size=3,
+            #                            stride = 2,
+            #                            padding=1,
+            #                            output_padding=1),
+            #         # nn.BatchNorm2d(hidden_dims[i + 1]),
+            #         nn.LeakyReLU())
+            # )
+            #
 
         self.decoder = nn.Sequential(*modules)
 
@@ -123,7 +143,7 @@ class VanillaVAE(BaseVAE):
         """
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
-        return mu#eps * std + mu
+        return eps * std + mu
 
     def forward(self, input: Tensor, **kwargs) -> List[Tensor]:
         mu, log_var = self.encode(input)

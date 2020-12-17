@@ -13,7 +13,7 @@ model_params:
   memory_leak_training: True
 
 exp_params:
-  dataset: sketchrnn
+  dataset: irrelavant
   data_path: "./data/numbers/"
   img_size: 128
   batch_size: 32 # Better to have a square number

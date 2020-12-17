@@ -1,5 +1,5 @@
 model_params:
-  name: "VectorVAEnLayers"
+  name: "VanillaVAE"
   in_channels: 3
   latent_dim: 128
   loss_fn: 'MSE'
@@ -11,16 +11,16 @@ model_params:
   learn_sampling: True
   only_auxillary_training: False
   composite_fn: 'soft'
-  memory_leak_training: True
+  memory_leak_training: False
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/baseline_mpl_numbers_changed/"
+  data_path: "./data/baseline_mpl_numbers_changed_vae/"
   img_size: 64
   batch_size: 8 # Better to have a square number
   val_batch_size: 32 # Better to have a square number
   val_shuffle: True
-  LR: 0.0005
+  LR: 0.005
   weight_decay: 0.0
   scheduler_gamma: 0.75
   grow: False
@@ -32,6 +32,6 @@ trainer_params:
 logging_params:
   save_dir: "logs/"
   other_interpolations: True
-  name: "VectorVAEnLayers"
+  name: "VanillaVAE"
   version: 210
   manual_seed: 1265

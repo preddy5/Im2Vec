@@ -4,21 +4,21 @@ model_params:
   latent_dim: 128
   loss_fn: 'MSE'
   paths: 20
-  beta: 1.0
-  other_losses_weight: 0.2
-  radius: 3
+  beta: 0
+  radius: 20
+  other_losses_weight: 0.5
   scale_factor: 1
   learn_sampling: True
   only_auxillary_training: False
   composite_fn: 'soft'
-  memory_leak_training: True
+  memory_leak_training: False
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/baseline_mpl_numbers_changed/"
-  img_size: 64
-  batch_size: 8 # Better to have a square number
-  val_batch_size: 32 # Better to have a square number
+  data_path: "./data/8_3c_corrupted/"
+  img_size: 128
+  batch_size: 4 # Better to have a square number
+  val_batch_size: 16 # Better to have a square number
   val_shuffle: True
   LR: 0.0005
   weight_decay: 0.0
@@ -27,11 +27,11 @@ exp_params:
 
 trainer_params:
   gpus: 1
-  max_epochs: 2000
+  max_epochs: 2500
 
 logging_params:
   save_dir: "logs/"
   other_interpolations: True
   name: "VectorVAEnLayers"
-  version: 210
+  version: 701
   manual_seed: 1265

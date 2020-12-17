@@ -35,12 +35,19 @@ class VectorVAE(BaseVAE):
         self.latent_dim = latent_dim
         self.imsize = imsize
         self.beta = kwargs['beta']
+        self.other_losses_weight = 0
+        if 'other_losses_weight' in kwargs.keys():
+            self.other_losses_weight = kwargs['other_losses_weight']
         self.curves = paths
         self.in_channels = in_channels
         self.scale_factor = kwargs['scale_factor']
         self.learn_sampling = kwargs['learn_sampling']
         self.only_auxillary_training = kwargs['only_auxillary_training']
         self.memory_leak_training = kwargs['memory_leak_training']
+
+        self.memory_leak_epochs = 105
+        if 'memory_leak_epochs' in kwargs.keys():
+            self.memory_leak_epochs = kwargs['memory_leak_epochs']
 
         if loss_fn == 'BCE':
             self.loss_fn = F.binary_cross_entropy_with_logits
@@ -92,13 +99,7 @@ class VectorVAE(BaseVAE):
         num_one_hot = base_control_features.shape[1]
         fused_latent_dim = latent_dim + num_one_hot+ (sample_rate*2)
         self.decoder_input = get_computational_unit(fused_latent_dim, fused_latent_dim*2, unit)
-        # self.point_predictor = nn.ModuleList([
-        #     get_computational_unit(latent_dim*2 + num_one_hot, latent_dim*2, unit),
-        #     get_computational_unit(latent_dim*3 + num_one_hot, latent_dim*2, unit),
-        #     get_computational_unit(latent_dim*3 + num_one_hot, latent_dim*2, unit),
-        #     get_computational_unit(latent_dim*3 + num_one_hot, 2, unit),
-        #     # nn.Sigmoid()  # bound spatial extent
-        # ])
+
         self.point_predictor = nn.ModuleList([
             get_computational_unit(fused_latent_dim*2, fused_latent_dim*2, unit),
             get_computational_unit(fused_latent_dim*2, fused_latent_dim*2, unit),
@@ -107,7 +108,6 @@ class VectorVAE(BaseVAE):
             get_computational_unit(fused_latent_dim*2, 2, unit),
             # nn.Sigmoid()  # bound spatial extent
         ])
-        self.render = pydiffvg.RenderFunction.apply
         if self.learn_sampling:
             self.sample_deformation = nn.Sequential(
                 get_computational_unit(latent_dim + 2+ (sample_rate*2), latent_dim*2, unit),
@@ -150,17 +150,9 @@ class VectorVAE(BaseVAE):
             return ((vec1-vec2)**2).mean()
 
         loss =0
-        # for i in range(self.curves):
-        #     idx = 3*i
-        #     c_0 = all_points[:, idx - 1, :]
-        #     c_1 = all_points[:, idx + 1, :]
-        #     c_2 = all_points[:, idx + 2, :]
-        #     # import pdb; pdb.set_trace()
-        #     loss = loss + distance(c_0, c_1) + distance(c_1, c_2)
         for idx in range(self.number_of_points):
             c_0 = all_points[:, idx - 1, :]
             c_1 = all_points[:, idx, :]
-            # import pdb; pdb.set_trace()
             loss = loss + distance(c_0, c_1)
         return loss
 
@@ -199,13 +191,14 @@ class VectorVAE(BaseVAE):
             render_size = render_size*2
         outputs = []
         all_points = all_points*render_size
-        num_ctrl_pts = torch.zeros(self.curves, dtype=torch.int32) + 2
-        color = make_tensor(color)
+        num_ctrl_pts = torch.zeros(self.curves, dtype=torch.int32).to(all_points.device) + 2
+        color = make_tensor(color).to(all_points.device)
         for k in range(bs):
             # Get point parameters from network
+            render = pydiffvg.RenderFunction.apply
             shapes = []
             shape_groups = []
-            points = all_points[k].cpu().contiguous()#[self.sort_idx[k]]
+            points = all_points[k].contiguous()#[self.sort_idx[k]] # .cpu()
 
             if verbose:
                 np.random.seed(0)
@@ -233,26 +226,26 @@ class VectorVAE(BaseVAE):
                         stroke_color=color)
                     shapes.append(path)
                     shape_groups.append(path_group)
-                for i in range(self.curves * 3):
-                    scale = diff*(i//3)
-                    color = low + scale
-                    color[3] = 1
-                    color = torch.tensor(color)
-                    if i%3==0:
-                        # color = torch.tensor(colors[i//3]) #green
-                        shape = pydiffvg.Rect(p_min = points[i]-8,
-                                             p_max = points[i]+8)
-                        group = pydiffvg.ShapeGroup(shape_ids=torch.tensor([self.curves+i]),
-                                                           fill_color=color)
-
-                    else:
-                        # color = torch.tensor(colors[i//3]) #purple
-                        shape = pydiffvg.Circle(radius=torch.tensor(8.0),
-                                                 center=points[i])
-                        group = pydiffvg.ShapeGroup(shape_ids=torch.tensor([self.curves+i]),
-                                                           fill_color=color)
-                    shapes.append(shape)
-                    shape_groups.append(group)
+                # for i in range(self.curves * 3):
+                #     scale = diff*(i//3)
+                #     color = low + scale
+                #     color[3] = 1
+                #     color = torch.tensor(color)
+                #     if i%3==0:
+                #         # color = torch.tensor(colors[i//3]) #green
+                #         shape = pydiffvg.Rect(p_min = points[i]-8,
+                #                              p_max = points[i]+8)
+                #         group = pydiffvg.ShapeGroup(shape_ids=torch.tensor([self.curves+i]),
+                #                                            fill_color=color)
+                #
+                #     else:
+                #         # color = torch.tensor(colors[i//3]) #purple
+                #         shape = pydiffvg.Circle(radius=torch.tensor(8.0),
+                #                                  center=points[i])
+                #         group = pydiffvg.ShapeGroup(shape_ids=torch.tensor([self.curves+i]),
+                #                                            fill_color=color)
+                #     shapes.append(shape)
+                #     shape_groups.append(group)
 
             else:
 
@@ -267,20 +260,20 @@ class VectorVAE(BaseVAE):
                     stroke_color=color)
                 shape_groups.append(path_group)
             scene_args = pydiffvg.RenderFunction.serialize_scene(render_size, render_size, shapes, shape_groups)
-            out = self.render(render_size,  # width
+            out = render(render_size,  # width
                          render_size,  # height
-                         2,  # num_samples_x
-                         2,  # num_samples_y
+                         3,  # num_samples_x
+                         3,  # num_samples_y
                          102,  # seed
                          None,
                          *scene_args)
             out = out.permute(2, 0, 1).view(4, render_size, render_size)#[:3]#.mean(0, keepdim=True)
             outputs.append(out)
         output =  torch.stack(outputs).to(all_points.device)
-        alpha = output[:, 3:4, :, :]
 
         # map to [-1, 1]
         if white_background:
+            alpha = output[:, 3:4, :, :]
             output_white_bg = output[:, :3, :, :]*alpha + (1-alpha)
             output = torch.cat([output_white_bg, alpha], dim=1)
         del num_ctrl_pts, color
@@ -339,13 +332,16 @@ class VectorVAE(BaseVAE):
         """
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
-        return mu#eps * std + mu
+        return eps * std + mu
 
     def forward(self, input: Tensor, **kwargs) -> List[Tensor]:
         mu, log_var = self.encode(input)
         z = self.reparameterize(mu, log_var)
         all_points = self.decode(z)
-        output = self.raster(all_points)
+        if not self.only_auxillary_training or self.save_lossvspath:
+            output = self.raster(all_points, white_background=True)
+        else:
+            output = torch.zeros([1,3,64,64])
         return  [output, input, mu, log_var]
 
     def bilinear_downsample(self, tensor, size):
@@ -377,8 +373,12 @@ class VectorVAE(BaseVAE):
         if len(args)==5:
             other_losses = args[4]
         aux_loss = 0
+        kld_loss = 0
         kld_weight = kwargs['M_N'] # Account for the minibatch samples from the dataset
-        recon_loss = self.gaussian_pyramid_loss(recons, input)
+        if not self.only_auxillary_training or self.save_lossvspath:
+            recon_loss = self.gaussian_pyramid_loss(recons, input)
+        else:
+            recon_loss = torch.zeros([1])
         if self.only_auxillary_training:
             recon_loss_non_reduced = recon_loss[:, None].clone().detach()
             spacing = self.aux_network(mu.clone().detach())
@@ -398,7 +398,7 @@ class VectorVAE(BaseVAE):
                 est_loss = spacing[:,2] + 1/torch.exp(num*spacing[:,0] - spacing[:,1])
                 # est_loss = spacing[:, 2] + (spacing[i, 0] / num)
 
-                aux_loss = torch.abs((est_loss - recon_loss_non_reduced)).mean() * 10
+                aux_loss = torch.abs(num*(est_loss - recon_loss_non_reduced)).mean() * 10
             else:
                 aux_loss = 0
                 for i in range(num_latents):
@@ -406,17 +406,18 @@ class VectorVAE(BaseVAE):
                     est_loss = spacing[i, 2] + 1 / torch.exp(pair[:, 0] * spacing[i, 0] - spacing[i, 1])
 
                     # est_loss = spacing[i, 2] + (spacing[i, 0] / pair[:, 0])
-                    aux_loss = aux_loss + torch.abs((est_loss - pair[:, 1])).mean()
+                    aux_loss = aux_loss + torch.abs(pair[:, 0]*(est_loss - pair[:, 1])).mean()
             loss =  aux_loss
             kld_loss = 0#self.beta*kld_weight * kld_loss
             logs = {'Reconstruction_Loss': recon_loss.mean(), 'KLD': -kld_loss, 'aux_loss': aux_loss}
             return {'loss': loss, 'progress_bar': logs }
         recon_loss = recon_loss.mean()
-        kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
-        kld_loss = self.beta*kld_weight * kld_loss
+        if self.beta>0:
+            kld_loss = torch.mean(-0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim = 1), dim = 0)
+            kld_loss = self.beta*kld_weight * kld_loss
         recon_loss = recon_loss*10
-        loss =  recon_loss + kld_loss + other_losses*0.25
-        logs = {'Reconstruction_Loss': recon_loss, 'KLD': -kld_loss, 'aux_loss': aux_loss, 'other losses': other_losses*0.25}
+        loss =  recon_loss + kld_loss + other_losses*self.other_losses_weight
+        logs = {'Reconstruction_Loss': recon_loss, 'KLD': -kld_loss, 'aux_loss': aux_loss, 'other losses': other_losses*self.other_losses_weight}
         return {'loss': loss, 'progress_bar': logs }
 
     def sample(self,
@@ -480,6 +481,7 @@ class VectorVAE(BaseVAE):
             shape_groups.append(path_group)
             pydiffvg.save_svg(f"{save_dir}{name}/{name}.svg",
                               self.imsize, self.imsize, shapes, shape_groups)
+
 
     def interpolate(self, x: Tensor, **kwargs) -> Tensor:
         """

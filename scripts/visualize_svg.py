@@ -15,12 +15,23 @@ def make_tensor(x, grad=False):
     x.requires_grad = grad
     return x
 
-def hard_composite(**kwargs):
+def hard_composite_(**kwargs):
     layers = kwargs['layers']
     n = len(layers)
     alpha = (1 - layers[n - 1][:, 3:4, :, :])
     rgb = layers[n - 1][:, :3] * layers[n - 1][:, 3:4, :, :]
     for i in reversed(range(n-1)):
+        rgb = rgb + layers[i][:, :3] * layers[i][:, 3:4, :, :] * alpha
+        alpha = (1-layers[i][:, 3:4, :, :]) * alpha
+    rgb = rgb + alpha
+    return rgb
+
+def hard_composite(**kwargs):
+    layers = kwargs['layers']
+    n = len(layers)
+    alpha = (1 - layers[0][:, 3:4, :, :])
+    rgb = layers[0][:, :3] * layers[0][:, 3:4, :, :]
+    for i in range(1, n):
         rgb = rgb + layers[i][:, :3] * layers[i][:, 3:4, :, :] * alpha
         alpha = (1-layers[i][:, 3:4, :, :]) * alpha
     rgb = rgb + alpha
@@ -126,14 +137,15 @@ def raster(all_points, color=[0, 0, 0, 1], verbose=False, white_background=True)
     return output
 
 
-def from_svg_path(path_str, shape_to_canvas = torch.eye(3), force_close = False):
+def from_svg_path(path_str, shape_to_canvas = torch.eye(3), force_close = False, verbose = True):
+    colors = [[0, 0, 0, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], ]
     paths, attributes = svgpathtools.svg2paths(path_str)
     ret_paths = []
     paths = paths
     for path in paths:
         subpaths = path.continuous_subpaths()
-        for subpath in subpaths:
-            print(subpath)
+        for idx, subpath in enumerate(subpaths):
+            # print(subpath)
             if len(subpath)==0:
                 continue
             if subpath.isclosed():
@@ -240,7 +252,15 @@ def from_svg_path(path_str, shape_to_canvas = torch.eye(3), force_close = False)
             points = torch.cat((points, torch.ones([points.shape[0], 1])), dim = 1) @ torch.transpose(shape_to_canvas, 0, 1)
             points = points / points[:, 2:3]
             points = points[:, :2].contiguous()
-            ret_paths.append(raster(points, verbose=True))
+            if verbose:
+                ret_paths.append(raster(points, verbose=True))
+            else:
+                # if i==0:
+                #     continue
+                if i>len(colors)-1:
+                    i = -1
+                print(i)
+                ret_paths.append(raster(points, colors[idx], verbose=False))
     return ret_paths
 
 if __name__ == "__main__":
@@ -253,8 +273,8 @@ if __name__ == "__main__":
     for file in range(len(svgs)):
         name = svg_folder+f'/{file}.svg'
         print(name)
-        layers = from_svg_path(name)
-        composite = hard_composite(layers=layers)
+        layers = from_svg_path(name, verbose = False)
+        composite = hard_composite_(layers=layers)
         renders.append(composite)
     render = torch.cat(renders, dim=0)
     vutils.save_image(render.cpu().data,

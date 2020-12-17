@@ -12,7 +12,7 @@ model_params:
   composite_fn: 'hard'
 
 exp_params:
-  dataset: sketchrnn
+  dataset: irrelavant
   data_path: "./data/emoji/"
   img_size: 128
   batch_size: 8 # Better to have a square number

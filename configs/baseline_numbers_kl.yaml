@@ -3,8 +3,8 @@ model_params:
   in_channels: 3
   latent_dim: 128
   loss_fn: 'MSE'
-  paths: 20
-  beta: 1.0
+  paths: 15
+  beta: 0.25
   other_losses_weight: 0.2
   radius: 3
   scale_factor: 1
@@ -12,15 +12,16 @@ model_params:
   only_auxillary_training: False
   composite_fn: 'soft'
   memory_leak_training: True
+  memory_leak_epochs: 50
 
 exp_params:
   dataset: sketchrnn
-  data_path: "./data/baseline_mpl_numbers_changed/"
+  data_path: "./data/numbers_changed/"
   img_size: 64
-  batch_size: 8 # Better to have a square number
+  batch_size: 16 # Better to have a square number
   val_batch_size: 32 # Better to have a square number
   val_shuffle: True
-  LR: 0.0005
+  LR: 0.00075
   weight_decay: 0.0
   scheduler_gamma: 0.75
   grow: False
@@ -33,5 +34,5 @@ logging_params:
   save_dir: "logs/"
   other_interpolations: True
   name: "VectorVAEnLayers"
-  version: 210
+  version: 212
   manual_seed: 1265
