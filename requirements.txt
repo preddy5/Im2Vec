@@ -7,4 +7,3 @@ torchfile==0.1.0
 torchnet==0.0.4
 torchsummary==1.5.1
 diffvg
-pytorch-lightning

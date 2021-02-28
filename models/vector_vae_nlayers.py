@@ -39,10 +39,10 @@ class VectorVAEnLayers(VectorVAE):
 
         # self.colors = [[0, 0, 0, 1], [255/255, 0/255, 0/255, 1],]
         # self.colors = [[0, 0, 0, 1], [255/255, 0/255, 255/255, 1], [0/255, 255/255, 255/255, 1],]
-        self.colors = [[0, 0, 0, 1], [255/255, 165/255, 0/255, 1], [0/255, 0/255, 255/255, 1],]
+        # self.colors = [[0, 0, 0, 1], [255/255, 165/255, 0/255, 1], [0/255, 0/255, 255/255, 1],]
 
-        # self.colors = [[252 / 255, 194 / 255, 27 / 255, 1], [255 / 255, 0 / 255, 0 / 255, 1],
-        #                [0 / 255, 255 / 255, 0 / 255, 1], [0 / 255, 0 / 255, 255 / 255, 1], ]
+        self.colors = [[252 / 255, 194 / 255, 27 / 255, 1], [255 / 255, 0 / 255, 0 / 255, 1],
+                       [0 / 255, 255 / 255, 0 / 255, 1], [0 / 255, 0 / 255, 255 / 255, 1], ]
 
         self.rnn = nn.LSTM(latent_dim, latent_dim, 2, bidirectional=True)
         self.composite_fn = self.hard_composite
@@ -130,7 +130,6 @@ class VectorVAEnLayers(VectorVAE):
         rgb = rgb + inv_mask
         return rgb
 
-
     def decode_and_composite(self, z: Tensor, return_overlap_loss=False, **kwargs):
         bs = z.shape[0]
         layers = []
@@ -205,9 +204,9 @@ class VectorVAEnLayers(VectorVAE):
         """
         mu, log_var = self.encode(x)
         all_interpolations = []
-        y_axis = self.interpolate_vectors(mu[12], mu[6], 10)
+        y_axis = self.interpolate_vectors(mu[7], mu[6], 10)
         for i in range(10):
-            z = self.interpolate_vectors(y_axis[i], mu[9], 10)
+            z = self.interpolate_vectors(y_axis[i], mu[3], 10)
             output = self.decode_and_composite(z, verbose=kwargs['verbose'])
             all_interpolations.append(output)
         return all_interpolations

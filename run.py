@@ -15,7 +15,7 @@ from pytorch_lightning.loggers import TestTubeLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 import click
 
-
+rootdir = os.getcwd()
 parser = argparse.ArgumentParser(description='Generic runner for VAE models')
 parser.add_argument('--config',  '-c',
                     dest="filename",
@@ -47,11 +47,11 @@ if os.path.exists(model_save_path):
         print('Training Auxillary Network or Memory Leak')
     elif click.confirm('Folder exists do you want to override?', default=True):
         rmtree(model_save_path)
-        copytree('/home/creddy/Work/vae/', model_save_path, ignore=ignore_patterns('*.pyc', 'tmp*', 'logs*', 'data*'))
+        copytree(rootdir, model_save_path, ignore=ignore_patterns('*.pyc', 'tmp*', 'logs*', 'data*'))
     else:
         resume = True
 else:
-    copytree('/home/creddy/Work/vae/', model_save_path, ignore=ignore_patterns('*.pyc', 'tmp*', 'logs*', 'data*'))
+    copytree(rootdir, model_save_path, ignore=ignore_patterns('*.pyc', 'tmp*', 'logs*', 'data*'))
 
 with open(model_save_path+'hyperparameters.txt', 'w') as f:
     json.dump(args.__dict__, f, indent=2)

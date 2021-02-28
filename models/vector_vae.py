@@ -36,8 +36,12 @@ class VectorVAE(BaseVAE):
         self.imsize = imsize
         self.beta = kwargs['beta']
         self.other_losses_weight = 0
+        self.reparametrize_ = False
         if 'other_losses_weight' in kwargs.keys():
             self.other_losses_weight = kwargs['other_losses_weight']
+        if 'reparametrize' in kwargs.keys():
+            self.reparametrize_ = kwargs['reparametrize']
+
         self.curves = paths
         self.in_channels = in_channels
         self.scale_factor = kwargs['scale_factor']
@@ -330,9 +334,12 @@ class VectorVAE(BaseVAE):
         :param logvar: (Tensor) Standard deviation of the latent Gaussian [B x D]
         :return: (Tensor) [B x D]
         """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return eps * std + mu
+        if self.reparametrize_:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return eps * std + mu
+        else:
+            return mu
 
     def forward(self, input: Tensor, **kwargs) -> List[Tensor]:
         mu, log_var = self.encode(input)
