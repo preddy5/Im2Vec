@@ -1,0 +1,36 @@
+model_params:
+  name: "VectorVAEnLayers"
+  in_channels: 3
+  latent_dim: 128
+  loss_fn: 'MSE'
+  paths: 20
+  beta: 0
+  radius: 3
+  scale_factor: 1
+  learn_sampling: False
+  only_auxillary_training: False
+  memory_leak_training: False
+  composite_fn: 'hard'
+
+exp_params:
+  dataset: irrelavant
+  data_path: "./data/emoji/"
+  img_size: 128
+  batch_size: 4 # Better to have a square number
+  val_batch_size: 8 # Better to have a square number
+  val_shuffle: True
+  LR: 0.0005
+  weight_decay: 0.0
+  scheduler_gamma: 0.95
+  grow: True
+
+trainer_params:
+  gpus: 1
+  max_epochs: 2500
+
+logging_params:
+  save_dir: "logs/"
+  other_interpolations: True
+  name: "VectorVAEnLayers"
+  version: 110
+  manual_seed: 1265
