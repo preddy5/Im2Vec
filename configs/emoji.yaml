@@ -10,6 +10,7 @@ model_params:
   learn_sampling: False
   only_auxillary_training: False
   memory_leak_training: False
+  other_losses_weight: 1
   composite_fn: 'soft'
 
 exp_params:

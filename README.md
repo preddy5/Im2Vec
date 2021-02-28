@@ -16,10 +16,13 @@ Inference
 
 `cd /logs/VectorVAEnLayers/version_110`
 
+`wget  http://geometry.cs.ucl.ac.uk/projects/2021/im2vec/paper_docs/epoch=667.ckpt`
+
 `CUDA_VISIBLE_DEVICES=1 python eval_local.py -c configs/emoji.yaml`
 
 
 *Note that I have a example of the training in the logs directory. The logs directory run is only for the sake of showing what to expect if everything is working. I wont be able to upload other datasets because of licensing reasons, email me for the trained models.*
+
 
 ## Citation
 ```
