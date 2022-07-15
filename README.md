@@ -22,7 +22,7 @@ CUDA_VISIBLE_DEVICES=1 python eval_local.py -c configs/emoji.yaml
 ```
 
 
-*Note that I have an example of the training in the logs directory. The logs directory run is only for the sake of showing what to expect if everything is working. I wont be able to upload other datasets because of licensing reasons, email me for the trained models.*
+*Note that I have an example of the training in the logs directory. The logs directory run is only for the sake of showing what to expect if everything is working.*
 
 
 ## Citation
